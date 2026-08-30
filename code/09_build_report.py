@@ -5,6 +5,7 @@ import binascii
 import html
 from pathlib import Path
 import re
+import shutil
 from html.parser import HTMLParser
 
 import pandas as pd
@@ -12,6 +13,7 @@ import pandas as pd
 from utils import OUTPUT_DIR, ROOT_DIR, ensure_project_dirs, load_dataframe
 
 DOCS_DIR = ROOT_DIR / "docs"
+IMAGE_ASSET_DIR = DOCS_DIR / "images"
 REPORT_PATHS = [DOCS_DIR / "analysis_report.html", DOCS_DIR / "index.html"]
 EMBEDDED_IMAGE_PATHS = {
     "candidate_total_characters": OUTPUT_DIR / "descriptive" / "candidate_total_characters.png",
@@ -80,8 +82,25 @@ def encode_image_as_data_uri(path: Path) -> str:
     return f"data:{media_type};base64,{encoded}"
 
 
+def ensure_image_assets() -> None:
+    IMAGE_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    for path in EMBEDDED_IMAGE_PATHS.values():
+        target = IMAGE_ASSET_DIR / path.name
+        if not target.exists() or target.stat().st_mtime < path.stat().st_mtime:
+            shutil.copy2(path, target)
+
+
 def build_embedded_image_sources() -> dict[str, str]:
     return {name: encode_image_as_data_uri(path) for name, path in EMBEDDED_IMAGE_PATHS.items()}
+
+
+def build_image_sources(mode: str = "data-uri") -> dict[str, str]:
+    if mode == "data-uri":
+        return build_embedded_image_sources()
+    if mode == "relative-files":
+        ensure_image_assets()
+        return {name: f"images/{path.name}" for name, path in EMBEDDED_IMAGE_PATHS.items()}
+    raise ValueError(f"unsupported image source mode: {mode}")
 
 
 def extract_img_sources(html_text: str) -> list[str]:
@@ -93,7 +112,7 @@ def extract_img_sources(html_text: str) -> list[str]:
 def validate_img_sources(html_text: str, html_path: Path) -> list[str]:
     invalid_sources: list[str] = []
     for src in extract_img_sources(html_text):
-        if re.match(r"^[A-Za-z]:[\\/]", src) or src.startswith("file:///"):
+        if re.match(r"^[A-Za-z]:[\\/]", src) or src.startswith("file:///") or src.startswith("/") or src.startswith("\\"):
             invalid_sources.append(f"{src} (absolute local path is not portable)")
             continue
         if src.startswith("data:image/"):
@@ -108,7 +127,9 @@ def validate_img_sources(html_text: str, html_path: Path) -> list[str]:
             continue
         if re.match(r"^[a-z]+://", src):
             continue
-        if not (html_path.parent / src).exists():
+        if src.startswith("images/") and not (html_path.parent / src).exists():
+            invalid_sources.append(f"{src} (missing relative file)")
+        elif not src.startswith("data:") and not src.startswith("images/") and not (html_path.parent / src).exists():
             invalid_sources.append(f"{src} (missing relative file)")
     return invalid_sources
 
@@ -301,7 +322,7 @@ def build_html() -> str:
     focus_term_table = build_focus_term_table(comparison, log_odds_top, candidate_stats)
     methods_table = build_methods_table(candidate_stats, question_stats, tokens)
     executive_summary = build_exec_summary(candidate_stats)
-    image_sources = build_embedded_image_sources()
+    image_sources = build_image_sources(mode="data-uri")
 
     interpretations = "".join(
         f"<li><strong>{html.escape(candidate_stats.set_index('candidate_id').loc[candidate_id, 'candidate_name'])}</strong>：{html.escape(text)}</li>"
@@ -644,6 +665,7 @@ def build_html() -> str:
 def main() -> None:
     ensure_project_dirs()
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_image_assets()
     html_text = build_html()
     for report_path in REPORT_PATHS:
         invalid_sources = validate_img_sources(html_text, report_path)
