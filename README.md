@@ -84,6 +84,7 @@ python code\05_common_terms.py
 python code\06_common_issues.py
 python code\07_tfidf.py
 python code\08_weighted_log_odds.py
+python code\09_build_report.py
 ```
 
 ## 前処理方法
@@ -179,6 +180,7 @@ prior は 5 候補全体を結合した語頻度分布から構成し、既定�
 - `output/common_issues/*`: KWIC, 共起, レビュー補助表
 - `output/tfidf/*`: TF-IDF
 - `output/log_odds/*`: weighted log-odds と比較表
+- `docs/analysis_report.html`: 分析結果をまとめたHTMLレポート
 
 ## 再現方法
 
