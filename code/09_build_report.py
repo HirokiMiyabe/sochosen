@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import html
 from pathlib import Path
+import re
+from html.parser import HTMLParser
 
 import pandas as pd
 
 from utils import OUTPUT_DIR, ROOT_DIR, ensure_project_dirs, load_dataframe
 
 DOCS_DIR = ROOT_DIR / "docs"
-REPORT_PATH = DOCS_DIR / "analysis_report.html"
+REPORT_PATHS = [DOCS_DIR / "analysis_report.html", DOCS_DIR / "index.html"]
+EMBEDDED_IMAGE_PATHS = {
+    "candidate_total_characters": OUTPUT_DIR / "descriptive" / "candidate_total_characters.png",
+    "question_answer_length_heatmap": OUTPUT_DIR / "descriptive" / "question_answer_length_heatmap.png",
+}
 
 SHARED_FOCUS_TERMS = ["課題", "必要", "国際", "社会", "役割", "組織", "部局"]
 CANDIDATE_FOCUS_TERMS = {
@@ -27,6 +35,20 @@ CANDIDATE_INTERPRETATIONS = {
 }
 
 
+class ImgSrcParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sources: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "img":
+            return
+        for key, value in attrs:
+            if key.lower() == "src" and value:
+                self.sources.append(value)
+                break
+
+
 def pct(value: float) -> str:
     return f"{value:.1%}"
 
@@ -39,6 +61,56 @@ def fmt(value: float) -> str:
 
 def make_table(df: pd.DataFrame) -> str:
     return df.to_html(index=False, escape=False, classes="table")
+
+
+def encode_image_as_data_uri(path: Path) -> str:
+    if not path.exists():
+        raise FileNotFoundError(f"report image not found: {path}")
+    suffix = path.suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".gif", ".svg"}:
+        raise ValueError(f"unsupported image type for embedding: {path}")
+    media_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".svg": "image/svg+xml",
+    }[suffix]
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
+
+
+def build_embedded_image_sources() -> dict[str, str]:
+    return {name: encode_image_as_data_uri(path) for name, path in EMBEDDED_IMAGE_PATHS.items()}
+
+
+def extract_img_sources(html_text: str) -> list[str]:
+    parser = ImgSrcParser()
+    parser.feed(html_text)
+    return parser.sources
+
+
+def validate_img_sources(html_text: str, html_path: Path) -> list[str]:
+    invalid_sources: list[str] = []
+    for src in extract_img_sources(html_text):
+        if re.match(r"^[A-Za-z]:[\\/]", src) or src.startswith("file:///"):
+            invalid_sources.append(f"{src} (absolute local path is not portable)")
+            continue
+        if src.startswith("data:image/"):
+            prefix, _, payload = src.partition(",")
+            if ";base64" not in prefix or not payload:
+                invalid_sources.append(f"{src[:80]}... (malformed data URI)")
+                continue
+            try:
+                base64.b64decode(payload, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                invalid_sources.append(f"{src[:80]}... ({exc})")
+            continue
+        if re.match(r"^[a-z]+://", src):
+            continue
+        if not (html_path.parent / src).exists():
+            invalid_sources.append(f"{src} (missing relative file)")
+    return invalid_sources
 
 
 def build_candidate_summary(candidate_stats: pd.DataFrame) -> pd.DataFrame:
@@ -229,6 +301,7 @@ def build_html() -> str:
     focus_term_table = build_focus_term_table(comparison, log_odds_top, candidate_stats)
     methods_table = build_methods_table(candidate_stats, question_stats, tokens)
     executive_summary = build_exec_summary(candidate_stats)
+    image_sources = build_embedded_image_sources()
 
     interpretations = "".join(
         f"<li><strong>{html.escape(candidate_stats.set_index('candidate_id').loc[candidate_id, 'candidate_name'])}</strong>：{html.escape(text)}</li>"
@@ -490,11 +563,11 @@ def build_html() -> str:
       <div class="table-wrap">{make_table(candidate_summary)}</div>
       <div class="grid" style="margin-top: 18px;">
         <figure>
-          <img src="../output/descriptive/candidate_total_characters.png" alt="候補者別総文字数">
+          <img src="{image_sources['candidate_total_characters']}" alt="候補者別総文字数">
           <figcaption>候補者別総文字数。山本隆司の記述量が突出している。</figcaption>
         </figure>
         <figure>
-          <img src="../output/descriptive/question_answer_length_heatmap.png" alt="質問×候補者 回答文字数">
+          <img src="{image_sources['question_answer_length_heatmap']}" alt="質問×候補者 回答文字数">
           <figcaption>質問×候補者の回答文字数。q04 と q06 で山本隆司の比重が特に大きい。</figcaption>
         </figure>
       </div>
@@ -571,8 +644,15 @@ def build_html() -> str:
 def main() -> None:
     ensure_project_dirs()
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(build_html(), encoding="utf-8")
-    print(f"wrote {REPORT_PATH}")
+    html_text = build_html()
+    for report_path in REPORT_PATHS:
+        invalid_sources = validate_img_sources(html_text, report_path)
+        if invalid_sources:
+            joined = "\n".join(f"- {item}" for item in invalid_sources)
+            raise ValueError(f"invalid image references in {report_path}:\n{joined}")
+        report_path.write_text(html_text, encoding="utf-8")
+        print(f"wrote {report_path}")
+    print(f"validated {len(extract_img_sources(html_text))} image references")
 
 
 if __name__ == "__main__":
