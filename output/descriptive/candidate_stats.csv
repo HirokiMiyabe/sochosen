@@ -1,0 +1,6 @@
+﻿candidate_id,candidate_name,url,answer_count,char_count,total_token_count,analysis_token_count,analysis_token_count_no_stopwords,noun_token_count_no_stopwords,unique_terms,unique_terms_no_stopwords,type_token_ratio,avg_chars_per_answer,avg_tokens_per_answer
+ohkoshi,大越慎一,https://news.todaishimbun.org/candidate/ohkoshi/,7,2734,1581,794,727,554,364,360,0.4951856946354883,390.57142857142856,103.85714285714286
+sugano,菅野暁,https://news.todaishimbun.org/candidate/sugano/,7,5964,3646,1705,1591,1043,634,631,0.3966059082338152,852.0,227.28571428571428
+someya,染谷隆夫,https://news.todaishimbun.org/candidate/someya/,7,4001,2464,1199,1108,754,486,482,0.43501805054151627,571.5714285714286,158.28571428571428
+fujigaki,藤垣裕子,https://news.todaishimbun.org/candidate/fujigaki/,7,5278,3152,1471,1382,938,574,569,0.4117221418234443,754.0,197.42857142857142
+yamamoto,山本隆司,https://news.todaishimbun.org/candidate/yamamoto/,7,8020,4861,2280,2059,1415,614,611,0.2967459932005828,1145.7142857142858,294.14285714285717

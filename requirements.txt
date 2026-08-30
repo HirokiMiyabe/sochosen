@@ -1,0 +1,9 @@
+beautifulsoup4
+requests
+pandas
+numpy
+scikit-learn
+matplotlib
+mecab-python3
+unidic-lite
+scipy
